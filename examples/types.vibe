@@ -1,0 +1,71 @@
+module TypesDemo
+
+intent:
+    Demonstrate Vibe's type system
+    Show structs, enums, and traits
+
+owner: documentation_team
+risk: low
+
+## Type System Demo
+## Shows how Vibe handles types
+
+struct User:
+    name: string
+    age: int
+    email: string
+    is_active: bool
+
+struct Point:
+    x: float
+    y: float
+
+enum Color:
+    Red
+    Green
+    Blue
+    Custom(r: float, g: float, b: float)
+
+enum Result:
+    Ok(value: any)
+    Error(message: string)
+
+trait Drawable:
+    func draw()
+    func get_bounds() -> Rectangle
+
+trait Serializable:
+    func serialize() -> string
+    func deserialize(data: string)
+
+type UserID = int
+type Email = string
+
+func create_user(name: string, age: int) -> User:
+    return User(
+        name: name,
+        age: age,
+        email: "",
+        is_active: true
+    )
+
+func get_user_color(user: User) -> Color:
+    if user.age < 18:
+        return Color.Green
+    else:
+        return Color.Blue
+
+proc calculate_distance(p1: Point, p2: Point) -> float:
+    let dx = p2.x - p1.x
+    let dy = p2.y - p1.y
+    return (dx * dx + dy * dy) ** 0.5
+
+func main() -> int:
+    let user = create_user("Alice", 25)
+    let point = Point(x: 1.0, y: 2.0)
+    let color = get_user_color(user)
+    
+    std.io.println("User: ${user.name}")
+    std.io.println("Point: (${point.x}, ${point.y})")
+    
+    return 0

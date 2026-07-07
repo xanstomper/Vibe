@@ -1,0 +1,77 @@
+module ErrorHandling
+
+intent:
+    Demonstrate error handling in Vibe
+    Show Result types and pattern matching
+
+import std.io
+import std.string
+
+func parse_int(input: string) -> !int:
+    if input.is_empty():
+        return Error("Empty input")
+    
+    if not input.is_numeric():
+        return Error("Not a number: ${input}")
+    
+    return Ok(input.to_int())
+
+func divide(a: float, b: float) -> !float:
+    if b == 0.0:
+        return Error("Division by zero")
+    
+    return Ok(a / b)
+
+func process_data(data: string) -> !string:
+    let result = parse_int(data)
+    
+    match result:
+        Ok(value) => {
+            let doubled = value * 2
+            return Ok("Result: ${doubled.to_string()}")
+        }
+        Error(e) => {
+            std.io.println("Error: ${e}")
+            return Error(e)
+        }
+
+func safe_divide(a: float, b: float) -> float:
+    let result = divide(a, b)
+    
+    return result or 0.0
+
+func batch_process(items: [string]) -> [!string]:
+    let results = []
+    
+    for item in items:
+        results.append(process_data(item))
+    
+    return results
+
+func main() -> int:
+    # Basic error handling
+    let result = parse_int("42")
+    match result:
+        Ok(value) => std.io.println("Parsed: ${value}"),
+        Error(e) => std.io.println("Failed: ${e}")
+    
+    # Division with error handling
+    let division = divide(10.0, 3.0)
+    match division:
+        Ok(value) => std.io.println("Result: ${value}"),
+        Error(e) => std.io.println("Error: ${e}")
+    
+    # Using the or operator for defaults
+    let safe_result = safe_divide(10.0, 0.0)
+    std.io.println("Safe result: ${safe_result}")
+    
+    # Batch processing
+    let inputs = ["42", "abc", "100", "xyz"]
+    let results = batch_process(inputs)
+    
+    for result in results:
+        match result:
+            Ok(value) => std.io.println("OK: ${value}"),
+            Error(e) => std.io.println("ERR: ${e}")
+    
+    return 0

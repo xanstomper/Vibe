@@ -1,0 +1,309 @@
+module ComprehensiveDemo
+
+intent:
+    Comprehensive Vibe language demonstration
+    Shows all major language features
+
+owner: documentation_team
+risk: low
+
+dependencies:
+    - std.io
+    - std.string
+    - std.collections
+
+api_surface:
+    - main()
+    - calculate(x, y)
+    - process_data(data)
+    - User.create(name, age)
+
+testing:
+    unit: 95.0
+    integration: 88.0
+    threshold: 90
+
+import std.io
+import std.string
+import std.collections
+
+# ============================================================
+# Type System Demo
+# ============================================================
+
+struct Point {
+    x: float
+    y: float
+}
+
+struct User {
+    name: string
+    age: int
+    email: string
+    is_active: bool
+}
+
+enum Color {
+    Red
+    Green
+    Blue
+    Custom(r: float, g: float, b: float)
+}
+
+enum Result {
+    Ok(value: any)
+    Error(message: string)
+}
+
+trait Drawable {
+    func draw()
+    func get_bounds() -> Rectangle
+}
+
+trait Serializable {
+    func serialize() -> string
+    func deserialize(data: string)
+}
+
+type UserID = int
+type Email = string
+
+# ============================================================
+# Functions
+# ============================================================
+
+func add(a: int, b: int) -> int {
+    return a + b
+}
+
+func subtract(a: int, b: int) -> int {
+    return a - b
+}
+
+func multiply(a: int, b: int) -> int {
+    return a * b
+}
+
+func divide(a: float, b: float) -> float {
+    if b == 0.0 {
+        return 0.0
+    }
+    return a / b
+}
+
+func is_even(n: int) -> bool {
+    return n % 2 == 0
+}
+
+func factorial(n: int) -> int {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+func fibonacci(n: int) -> int {
+    if n <= 1 {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+# ============================================================
+# Error Handling
+# ============================================================
+
+func parse_int(input: string) -> !int {
+    if input.is_empty() {
+        return Error("Empty input")
+    }
+    
+    if not input.is_numeric() {
+        return Error("Not a number: ${input}")
+    }
+    
+    return Ok(input.to_int())
+}
+
+func divide_safe(a: float, b: float) -> !float {
+    if b == 0.0 {
+        return Error("Division by zero")
+    }
+    return Ok(a / b)
+}
+
+# ============================================================
+# Pattern Matching
+# ============================================================
+
+func describe_color(color: Color) -> string {
+    match color {
+        Color.Red => "Red",
+        Color.Green => "Green",
+        Color.Blue => "Blue",
+        Color.Custom(r, g, b) => "Custom(${r}, ${g}, ${b})"
+    }
+}
+
+func process_result(result: !int) -> string {
+    match result {
+        Ok(value) => "Success: ${value}",
+        Error(e) => "Error: ${e}"
+    }
+}
+
+# ============================================================
+# Collections
+# ============================================================
+
+func sum_array(arr: [int]) -> int {
+    let total = 0
+    for item in arr {
+        total = total + item
+    }
+    return total
+}
+
+func find_max(arr: [int]) -> int {
+    if arr.is_empty() {
+        return 0
+    }
+    
+    let max = arr[0]
+    for item in arr {
+        if item > max {
+            max = item
+        }
+    }
+    return max
+}
+
+func filter_even(arr: [int]) -> [int] {
+    let result = []
+    for item in arr {
+        if is_even(item) {
+            result.append(item)
+        }
+    }
+    return result
+}
+
+func map_to_string(arr: [int]) -> [string] {
+    let result = []
+    for item in arr {
+        result.append(item.to_string())
+    }
+    return result
+}
+
+# ============================================================
+# Concurrency
+# ============================================================
+
+func fetch_data(url: string) -> string {
+    # Simulate network request
+    std.time.sleep(100)
+    return "Data from ${url}"
+}
+
+func process_chunk(chunk: string) -> string {
+    # Simulate processing
+    std.time.sleep(50)
+    return "Processed: ${chunk}"
+}
+
+func fetch_parallel(urls: [string]) -> [string] {
+    let tasks = []
+    
+    # Spawn parallel tasks
+    for url in urls {
+        spawn fetch_data(url)
+    }
+    
+    # Await all results
+    let results = []
+    for url in urls {
+        let result = await fetch_data(url)
+        results.append(result)
+    }
+    
+    return results
+}
+
+# ============================================================
+# Higher-Order Functions
+# ============================================================
+
+func apply_twice(f: func(int) -> int, x: int) -> int {
+    return f(f(x))
+}
+
+func double(x: int) -> int {
+    return x * 2
+}
+
+func increment(x: int) -> int {
+    return x + 1
+}
+
+func reduce(arr: [int], f: func(int, int) -> int, initial: int) -> int {
+    let result = initial
+    for item in arr {
+        result = f(result, item)
+    }
+    return result
+}
+
+# ============================================================
+# Main Function
+# ============================================================
+
+func main() -> int {
+    std.io.println("=== Vibe Comprehensive Demo ===")
+    
+    # Basic operations
+    let x = 10
+    let y = 5
+    
+    std.io.println("Add: ${add(x, y)}")
+    std.io.println("Subtract: ${subtract(x, y)}")
+    std.io.println("Multiply: ${multiply(x, y)}")
+    std.io.println("Divide: ${divide(x.to_float(), y.to_float())}")
+    std.io.println("Is even: ${is_even(x)}")
+    std.io.println("Factorial: ${factorial(5)}")
+    std.io.println("Fibonacci: ${fibonacci(10)}")
+    
+    # Type system
+    let point = Point(x: 1.0, y: 2.0)
+    let user = User(name: "Alice", age: 25, email: "alice@example.com", is_active: true)
+    let color = Color.Blue
+    
+    std.io.println("Point: (${point.x}, ${point.y})")
+    std.io.println("User: ${user.name} (${user.age})")
+    std.io.println("Color: ${describe_color(color)}")
+    
+    # Error handling
+    let result1 = parse_int("42")
+    let result2 = parse_int("abc")
+    
+    std.io.println("Parse '42': ${process_result(result1)}")
+    std.io.println("Parse 'abc': ${process_result(result2)}")
+    
+    # Collections
+    let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    
+    std.io.println("Sum: ${sum_array(numbers)}")
+    std.io.println("Max: ${find_max(numbers)}")
+    std.io.println("Even: ${filter_even(numbers)}")
+    
+    # Higher-order functions
+    let result = apply_twice(double, 3)
+    std.io.println("Apply twice: ${result}")
+    
+    let sum = reduce(numbers, add, 0)
+    std.io.println("Reduce sum: ${sum}")
+    
+    std.io.println("=== Demo Complete ===")
+    
+    return 0
+}

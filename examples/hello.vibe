@@ -1,0 +1,12 @@
+module HelloWorld
+
+intent:
+    Simple hello world example
+    Demonstrates basic Vibe syntax
+
+import std.io
+
+proc main() -> int {
+    std.io.println("Hello, World!")
+    return 0
+}

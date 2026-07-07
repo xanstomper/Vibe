@@ -1,0 +1,85 @@
+module ConcurrencyDemo
+
+intent:
+    Demonstrate Vibe's concurrency features
+    Show spawn and await usage
+
+import std.io
+import std.time
+
+func fetch_data(url: string) -> string:
+    # Simulate network request
+    std.time.sleep(100)
+    return "Data from ${url}"
+
+func process_chunk(chunk: string) -> string:
+    # Simulate processing
+    std.time.sleep(50)
+    return "Processed: ${chunk}"
+
+func fetch_parallel(urls: [string]) -> [string]:
+    let tasks = []
+    
+    # Spawn parallel tasks
+    for url in urls:
+        spawn fetch_data(url)
+    
+    # Await all results
+    let results = []
+    for url in urls:
+        let result = await fetch_data(url)
+        results.append(result)
+    
+    return results
+
+func pipeline(data: string) -> string:
+    # Sequential pipeline
+    let step1 = process_chunk(data)
+    let step2 = process_chunk(step1)
+    let step3 = process_chunk(step2)
+    return step3
+
+func parallel_pipeline(data: [string]) -> [string]:
+    let tasks = []
+    
+    # Spawn parallel pipelines
+    for item in data:
+        spawn pipeline(item)
+    
+    # Collect results
+    let results = []
+    for item in data:
+        let result = await pipeline(item)
+        results.append(result)
+    
+    return results
+
+func main() -> int:
+    std.io.println("Concurrency Demo")
+    
+    # Sequential execution
+    let start_time = std.time.now()
+    let urls = ["api1.com", "api2.com", "api3.com"]
+    
+    let sequential_results = []
+    for url in urls:
+        let data = fetch_data(url)
+        sequential_results.append(data)
+    
+    let seq_time = std.time.now() - start_time
+    std.io.println("Sequential: ${seq_time}ms")
+    
+    # Parallel execution
+    let start_time2 = std.time.now()
+    let parallel_results = fetch_parallel(urls)
+    let par_time = std.time.now() - start_time2
+    std.io.println("Parallel: ${par_time}ms")
+    
+    # Pipeline example
+    let items = ["item1", "item2", "item3"]
+    let pipeline_results = parallel_pipeline(items)
+    
+    for result in pipeline_results:
+        std.io.println(result)
+    
+    return 0
