@@ -1,619 +1,322 @@
 """
 Vibe Language Lexer
 
-Tokenizes Vibe source code into a stream of tokens
+Tokenizes Vibe source into a flat token list.
+Keywords: entity, action, proc, flow, when, otherwise, loop, match,
+          spawn, await, trait, return, yield, goal, constraint, guarantee,
+          unsafe, owned, borrowed, let, var, and, or, not, import, from, module
 """
-
-from dataclasses import dataclass
-from enum import Enum
+from __future__ import annotations
+from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import List, Optional
+import re
 
 
-class TokenType(Enum):
+class TT(Enum):
     """Token types"""
     # Literals
-    INT = "INT"
-    FLOAT = "FLOAT"
-    STRING = "STRING"
-    CHAR = "CHAR"
-    BOOL = "BOOL"
-    
-    # Identifiers and keywords
-    IDENTIFIER = "IDENTIFIER"
-    MODULE = "MODULE"
-    IMPORT = "IMPORT"
-    FROM = "FROM"
-    AS = "AS"
-    LET = "LET"
-    MUT = "MUT"
-    CONST = "CONST"
-    FUNC = "FUNC"
-    PROC = "PROC"
-    STRUCT = "STRUCT"
-    ENUM = "ENUM"
-    TRAIT = "TRAIT"
-    TYPE = "TYPE"
-    RETURN = "RETURN"
-    IF = "IF"
-    ELSE = "ELSE"
-    WHILE = "WHILE"
-    FOR = "FOR"
-    IN = "IN"
-    MATCH = "MATCH"
-    SPAWN = "SPAWN"
-    AWAIT = "AWAIT"
-    NONE = "NONE"
-    OK = "OK"
-    ERROR = "ERROR"
-    UNSAFE = "UNSAFE"
-    AND = "AND"
-    OR = "OR"
-    NOT = "NOT"
-    TRUE = "TRUE"
-    FALSE = "FALSE"
-    SELF = "SELF"
-    
-    # Metadata keywords
-    INTENT = "INTENT"
-    OWNER = "OWNER"
-    RISK = "RISK"
-    DEPENDENCIES = "DEPENDENCIES"
-    API_SURFACE = "API_SURFACE"
-    TESTING = "TESTING"
-    UNIT = "UNIT"
-    INTEGRATION = "INTEGRATION"
-    COVERAGE = "COVERAGE"
-    THRESHOLD = "THRESHOLD"
-    
-    # Operators
-    PLUS = "PLUS"
-    MINUS = "MINUS"
-    STAR = "STAR"
-    SLASH = "SLASH"
-    PERCENT = "PERCENT"
-    POWER = "POWER"
-    
-    EQ = "EQ"
-    NEQ = "NEQ"
-    LT = "LT"
-    LTE = "LTE"
-    GT = "GT"
-    GTE = "GTE"
-    
-    AND_AND = "AND_AND"
-    OR_OR = "OR_OR"
-    
-    BIT_AND = "BIT_AND"
-    BIT_OR = "BIT_OR"
-    BIT_XOR = "BIT_XOR"
-    BIT_NOT = "BIT_NOT"
-    SHL = "SHL"
-    SHR = "SHR"
-    
-    ASSIGN = "ASSIGN"
-    PLUS_ASSIGN = "PLUS_ASSIGN"
-    MINUS_ASSIGN = "MINUS_ASSIGN"
-    STAR_ASSIGN = "STAR_ASSIGN"
-    SLASH_ASSIGN = "SLASH_ASSIGN"
-    PERCENT_ASSIGN = "PERCENT_ASSIGN"
-    
-    INCREMENT = "INCREMENT"
-    DECREMENT = "DECREMENT"
-    
-    # Delimiters
-    LPAREN = "LPAREN"
-    RPAREN = "RPAREN"
-    LBRACE = "LBRACE"
-    RBRACE = "RBRACE"
-    LBRACKET = "LBRACKET"
-    RBRACKET = "RBRACKET"
-    LANGLE = "LANGLE"
-    RANGLE = "RANGLE"
-    COLON = "COLON"
-    DOUBLE_COLON = "DOUBLE_COLON"
-    SEMICOLON = "SEMICOLON"
-    COMMA = "COMMA"
-    DOT = "DOT"
-    ARROW = "ARROW"
-    THICK_ARROW = "THICK_ARROW"
-    QUESTION = "QUESTION"
-    EXCLAMATION = "EXCLAMATION"
-    DOLLAR = "DOLLAR"
-    HASH = "HASH"
-    DOUBLE_HASH = "DOUBLE_HASH"
-    AT = "AT"
-    UNDERSCORE = "UNDERSCORE"
-    
+    INT = auto(); FLOAT = auto(); TEXT = auto()
+    BOOL = auto(); BYTE = auto(); NONE = auto()
+    # Identifiers / Keywords
+    IDENT = auto()
+    # Keywords (one-way: no ambiguity)
+    MODULE = auto(); IMPORT = auto(); FROM = auto()
+    ENTITY = auto(); PROPERTY = auto(); ACTION = auto()
+    PROC = auto(); FLOW = auto(); STEP = auto()
+    WHEN = auto(); OTHERWISE = auto(); LOOP = auto()
+    MATCH = auto(); RETURN = auto(); YIELD = auto()
+    SPAWN = auto(); AWAIT = auto(); CHANNEL = auto()
+    TRAIT = auto(); IMPLEMENT = auto()
+    GOAL = auto(); CONSTRAINT = auto(); GUARANTEE = auto()
+    UNSAFE = auto(); OWNED = auto(); BORROWED = auto()
+    LET = auto(); VAR = auto()
+    # Type keywords
+    TEXT = auto(); INT_TYPE = auto(); FLOAT_TYPE = auto()
+    BOOL_TYPE = auto(); BYTE_TYPE = auto(); VOID = auto()
+    ANY = auto(); NEVER = auto()
+    # Symbols
+    DOT = auto(); COMMA = auto(); COLON = auto(); SEMICOLON = auto()
+    LPAREN = auto(); RPAREN = auto()
+    LBRACE = auto(); RBRACE = auto()
+    LBRACKET = auto(); RBRACKET = auto()
+    ARROW = auto(); FAT_ARROW = auto()
+    PLUS = auto(); MINUS = auto(); STAR = auto(); SLASH = auto()
+    PERCENT = auto(); CARET = auto(); TILDE = auto()
+    AMP = auto(); PIPE = auto()
+    EQ = auto(); NEQ = auto()
+    LT = auto(); LTE = auto(); GT = auto(); GTE = auto()
+    PLUS_EQ = auto(); MINUS_EQ = auto(); STAR_EQ = auto(); SLASH_EQ = auto()
+    INC = auto(); DEC = auto()
+    QUESTION = auto(); BANG = auto()
     # Special
-    NEWLINE = "NEWLINE"
-    INDENT = "INDENT"
-    DEDENT = "DEDENT"
-    EOF = "EOF"
-    ERROR_TOKEN = "ERROR_TOKEN"
+    NEWLINE = auto(); INDENT = auto(); DEDENT = auto()
+    EOF = auto()
+    # Error
+    ERROR = auto()
+
+    # Re-alias for clarity
+    AND = auto(); OR = auto(); NOT = auto()
+
+
+# ── Keyword map ────────────────────────────────────────────────
+KEYWORDS = {
+    'module': TT.MODULE, 'import': TT.IMPORT, 'from': TT.FROM,
+    'entity': TT.ENTITY, 'property': TT.PROPERTY, 'action': TT.ACTION,
+    'proc': TT.PROC, 'flow': TT.FLOW, 'step': TT.STEP,
+    'when': TT.WHEN, 'otherwise': TT.OTHERWISE, 'loop': TT.LOOP,
+    'match': TT.MATCH, 'return': TT.RETURN, 'yield': TT.YIELD,
+    'spawn': TT.SPAWN, 'await': TT.AWAIT, 'channel': TT.CHANNEL,
+    'trait': TT.TRAIT, 'impl': TT.IMPLEMENT,
+    'goal': TT.GOAL, 'constraint': TT.CONSTRAINT, 'guarantee': TT.GUARANTEE,
+    'unsafe': TT.UNSAFE, 'owned': TT.OWNED, 'borrowed': TT.BORROWED,
+    'let': TT.LET, 'var': TT.VAR,
+    'Text': TT.TEXT, 'Int': TT.INT_TYPE, 'Float': TT.FLOAT_TYPE,
+    'Bool': TT.BOOL_TYPE, 'Byte': TT.BYTE_TYPE, 'Void': TT.VOID,
+    'Any': TT.ANY, 'Never': TT.NEVER,
+    'true': TT.BOOL, 'false': TT.BOOL, 'none': TT.NONE,
+    'and': TT.AND, 'or': TT.OR, 'not': TT.NOT,
+    'property': TT.PROPERTY, 'intent': TT.IDENT, 'owner': TT.IDENT,
+    'risk': TT.IDENT, 'depends': TT.IDENT, 'api': TT.IDENT,
+    'testing': TT.IDENT, 'history': TT.IDENT, 'context': TT.IDENT,
+}
 
 
 @dataclass
 class Token:
-    """A single token"""
-    type: TokenType
-    value: str
-    line: int
-    column: int
-    length: int = 1
-    
+    type: TT
+    value: str = ''
+    line: int = 0
+    col: int = 0
+
     def __repr__(self):
-        return f"Token({self.type.name}, '{self.value}', line={self.line}, col={self.column})"
+        return f"Token({self.type.name}, {self.value!r}, L{self.line}:C{self.col})"
 
 
 class LexerError(Exception):
-    """Lexer error"""
-    def __init__(self, message: str, line: int, column: int):
-        self.message = message
+    def __init__(self, msg, line, col):
+        super().__init__(f"Lexer error at line {line}, col {col}: {msg}")
         self.line = line
-        self.column = column
-        super().__init__(f"Line {line}, Column {column}: {message}")
+        self.col = col
 
 
 class Lexer:
-    """Vibe language lexer"""
-    
-    # Keywords mapping
-    KEYWORDS = {
-        'module': TokenType.MODULE,
-        'import': TokenType.IMPORT,
-        'from': TokenType.FROM,
-        'as': TokenType.AS,
-        'let': TokenType.LET,
-        'mut': TokenType.MUT,
-        'const': TokenType.CONST,
-        'func': TokenType.FUNC,
-        'proc': TokenType.PROC,
-        'struct': TokenType.STRUCT,
-        'enum': TokenType.ENUM,
-        'trait': TokenType.TRAIT,
-        'type': TokenType.TYPE,
-        'return': TokenType.RETURN,
-        'if': TokenType.IF,
-        'else': TokenType.ELSE,
-        'while': TokenType.WHILE,
-        'for': TokenType.FOR,
-        'in': TokenType.IN,
-        'match': TokenType.MATCH,
-        'spawn': TokenType.SPAWN,
-        'await': TokenType.AWAIT,
-        'none': TokenType.NONE,
-        'ok': TokenType.OK,
-        'error': TokenType.ERROR,
-        'unsafe': TokenType.UNSAFE,
-        'and': TokenType.AND,
-        'or': TokenType.OR,
-        'not': TokenType.NOT,
-        'true': TokenType.TRUE,
-        'false': TokenType.FALSE,
-        'self': TokenType.SELF,
-        'intent': TokenType.INTENT,
-        'owner': TokenType.OWNER,
-        'risk': TokenType.RISK,
-        'dependencies': TokenType.DEPENDENCIES,
-        'api_surface': TokenType.API_SURFACE,
-        'testing': TokenType.TESTING,
-        'unit': TokenType.UNIT,
-        'integration': TokenType.INTEGRATION,
-        'coverage': TokenType.COVERAGE,
-        'threshold': TokenType.THRESHOLD,
-    }
-    
-    def __init__(self, source: str, filename: str = "<stdin>"):
+    """Stateful lexer with indent tracking."""
+
+    def __init__(self, source: str, filename: str = '<input>'):
         self.source = source
         self.filename = filename
         self.pos = 0
         self.line = 1
-        self.column = 1
+        self.col = 1
         self.tokens: List[Token] = []
         self.indent_stack: List[int] = [0]
-        self.pending_tokens: List[Token] = []
-    
-    def error(self, message: str) -> LexerError:
-        """Create a lexer error"""
-        return LexerError(message, self.line, self.column)
-    
-    def peek(self) -> Optional[str]:
-        """Peek at current character"""
-        if self.pos < len(self.source):
-            return self.source[self.pos]
-        return None
-    
-    def peek_next(self) -> Optional[str]:
-        """Peek at next character"""
-        if self.pos + 1 < len(self.source):
-            return self.source[self.pos + 1]
-        return None
-    
+        self.pending_dedents = 0
+
+    def peek(self, offset=0) -> str:
+        p = self.pos + offset
+        return self.source[p] if p < len(self.source) else '\0'
+
     def advance(self) -> str:
-        """Advance to next character"""
-        if self.pos >= len(self.source):
-            raise self.error("Unexpected end of file")
-        
         ch = self.source[self.pos]
         self.pos += 1
-        
         if ch == '\n':
             self.line += 1
-            self.column = 1
+            self.col = 1
         else:
-            self.column += 1
-        
+            self.col += 1
         return ch
-    
+
     def skip_whitespace(self):
-        """Skip whitespace (not newlines)"""
         while self.pos < len(self.source) and self.source[self.pos] in ' \t\r':
             self.advance()
-    
+
     def skip_comment(self):
-        """Skip single-line comment"""
-        while self.pos < len(self.source) and self.source[self.pos] != '\n':
-            self.advance()
-    
-    def skip_block_comment(self):
-        """Skip multi-line comment"""
-        depth = 1
-        while self.pos < len(self.source) and depth > 0:
-            if self.source[self.pos] == '#' and self.peek_next() == '#':
-                depth += 1
+        if self.peek() == '#' and self.peek(1) == '#':
+            # Block comment
+            self.advance(); self.advance()
+            while self.pos < len(self.source):
+                if self.peek() == '#' and self.peek(1) == '#':
+                    self.advance(); self.advance()
+                    return
                 self.advance()
+        elif self.peek() == '#':
+            # Line comment
+            while self.pos < len(self.source) and self.peek() != '\n':
                 self.advance()
-            elif self.source[self.pos] == '#' and self.peek_next() == '#':
-                # Check for single # at end
-                pass
-            elif self.source[self.pos] == '#':
-                # End of block comment
-                depth -= 1
-                self.advance()
-            else:
-                self.advance()
-        
-        if depth > 0:
-            raise self.error("Unterminated block comment")
-    
+
     def read_string(self) -> Token:
-        """Read string literal"""
-        start_line, start_col = self.line, self.column
-        self.advance()  # Skip opening quote
-        
-        value = []
+        start_line, start_col = self.line, self.col
+        quote = self.advance()  # consume opening quote
+        parts = []
         while self.pos < len(self.source):
-            ch = self.source[self.pos]
-            
-            if ch == '"':
-                self.advance()  # Skip closing quote
-                return Token(TokenType.STRING, ''.join(value), start_line, start_col)
-            
+            ch = self.peek()
+            if ch == quote:
+                self.advance()
+                return Token(TT.TEXT, ''.join(parts), start_line, start_col)
             if ch == '\\':
                 self.advance()
-                escape_ch = self.advance()
-                
-                escape_map = {
-                    'n': '\n',
-                    't': '\t',
-                    'r': '\r',
-                    '\\': '\\',
-                    '"': '"',
-                    '0': '\0',
-                }
-                value.append(escape_map.get(escape_ch, escape_ch))
+                esc = self.advance()
+                escape_map = {'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', '"': '"', "'": "'"}
+                parts.append(escape_map.get(esc, esc))
             else:
-                value.append(self.advance())
-        
-        raise self.error("Unterminated string")
-    
-    def read_char(self) -> Token:
-        """Read character literal"""
-        start_line, start_col = self.line, self.column
-        self.advance()  # Skip opening quote
-        
-        if self.peek() == '\\':
-            self.advance()
-            ch = self.advance()
-            escape_map = {
-                'n': '\n',
-                't': '\t',
-                'r': '\r',
-                '\\': '\\',
-                "'": "'",
-                '0': '\0',
-            }
-            value = escape_map.get(ch, ch)
-        else:
-            value = self.advance()
-        
-        if self.peek() != "'":
-            raise self.error("Unterminated character literal")
-        self.advance()  # Skip closing quote
-        
-        return Token(TokenType.CHAR, value, start_line, start_col)
-    
+                parts.append(self.advance())
+        raise LexerError("Unterminated string", start_line, start_col)
+
+    def read_byte(self) -> Token:
+        start_line, start_col = self.line, self.col
+        self.advance()  # consume b
+        self.advance()  # consume quote
+        val = []
+        while self.pos < len(self.source):
+            ch = self.peek()
+            if ch == '"':
+                self.advance()
+                return Token(TT.BYTE, bytes(''.join(val), 'utf-8').hex(), start_line, start_col)
+            if ch == '\\':
+                self.advance()
+                esc = self.advance()
+                val.append(esc)
+            else:
+                val.append(self.advance())
+        raise LexerError("Unterminated byte literal", start_line, start_col)
+
     def read_number(self) -> Token:
-        """Read number literal"""
-        start_line, start_col = self.line, self.column
-        value = []
+        start_line, start_col = self.line, self.col
+        num = ''
         is_float = False
-        
-        while self.pos < len(self.source):
-            ch = self.source[self.pos]
-            
-            if ch.isdigit():
-                value.append(self.advance())
-            elif ch == '.' and not is_float:
+        while self.pos < len(self.source) and (self.peek().isdigit() or self.peek() == '.'):
+            if self.peek() == '.':
+                if is_float:
+                    break
                 is_float = True
-                value.append(self.advance())
-            else:
-                break
-        
+            num += self.advance()
         if is_float:
-            return Token(TokenType.FLOAT, ''.join(value), start_line, start_col)
-        else:
-            return Token(TokenType.INT, ''.join(value), start_line, start_col)
-    
-    def read_identifier(self) -> Token:
-        """Read identifier or keyword"""
-        start_line, start_col = self.line, self.column
-        value = []
-        
-        while self.pos < len(self.source):
-            ch = self.source[self.pos]
-            if ch.isalnum() or ch == '_':
-                value.append(self.advance())
-            else:
-                break
-        
-        word = ''.join(value)
-        token_type = self.KEYWORDS.get(word, TokenType.IDENTIFIER)
-        
-        return Token(token_type, word, start_line, start_col)
-    
-    def add_token(self, token_type: TokenType, value: str, 
-                  start_line: int, start_col: int, length: int = 1):
-        """Add a token"""
-        self.tokens.append(Token(token_type, value, start_line, start_col, length))
-    
+            return Token(TT.FLOAT, num, start_line, start_col)
+        return Token(TT.INT, num, start_line, start_col)
+
+    def read_ident(self) -> Token:
+        start_line, start_col = self.line, self.col
+        name = ''
+        while self.pos < len(self.source) and (self.peek().isalnum() or self.peek() in '_-'):
+            name += self.advance()
+        tt = KEYWORDS.get(name, TT.IDENT)
+        if tt == TT.BOOL:
+            return Token(TT.BOOL, name, start_line, start_col)
+        if tt == TT.NONE:
+            return Token(TT.NONE, 'none', start_line, start_col)
+        return Token(tt, name, start_line, start_col)
+
+    def handle_indent(self):
+        """Process indentation at start of line."""
+        if self.pos >= len(self.source):
+            return
+        # Count spaces
+        spaces = 0
+        while self.pos < len(self.source) and self.source[self.pos] == ' ':
+            spaces += 1
+            self.advance()
+        # Skip blank lines and comment-only lines
+        if self.pos < len(self.source) and (self.peek() == '\n' or self.peek() == '#'):
+            if self.peek() == '#':
+                self.skip_comment()
+            if self.peek() == '\n':
+                self.advance()
+                self.handle_indent()
+                return
+        current = self.indent_stack[-1]
+        if spaces > current:
+            self.indent_stack.append(spaces)
+            self.tokens.append(Token(TT.INDENT, '', self.line, self.col))
+        elif spaces < current:
+            while self.indent_stack[-1] > spaces:
+                self.indent_stack.pop()
+                self.tokens.append(Token(TT.DEDENT, '', self.line, self.col))
+            if self.indent_stack[-1] != spaces:
+                raise LexerError(f"Indentation error: expected {self.indent_stack[-1]} spaces, got {spaces}", self.line, self.col)
+
     def tokenize(self) -> List[Token]:
-        """Tokenize the entire source"""
+        """Main tokenization loop."""
         while self.pos < len(self.source):
             self.skip_whitespace()
-            
+
             if self.pos >= len(self.source):
                 break
-            
-            start_line, start_col = self.line, self.column
-            ch = self.source[self.pos]
-            
-            # Newlines
+
+            ch = self.peek()
+
+            # Newline
             if ch == '\n':
                 self.advance()
-                self.add_token(TokenType.NEWLINE, '\n', start_line, start_col)
-            
-            # Comments
-            elif ch == '#':
+                self.tokens.append(Token(TT.NEWLINE, '\\n', self.line, self.col))
+                self.handle_indent()
+                continue
+
+            # Comment
+            if ch == '#':
+                self.skip_comment()
+                continue
+
+            # String
+            if ch == '"' or ch == "'":
+                self.tokens.append(self.read_string())
+                continue
+
+            # Byte literal
+            if ch == 'b' and self.peek(1) == '"':
+                self.tokens.append(self.read_byte())
+                continue
+
+            # Number
+            if ch.isdigit():
+                self.tokens.append(self.read_number())
+                continue
+
+            # Identifier / keyword
+            if ch.isalpha() or ch == '_':
+                self.tokens.append(self.read_ident())
+                continue
+
+            # Two-char operators
+            two = ch + (self.peek(1) if self.pos + 1 < len(self.source) else '')
+            op_map = {
+                '==': TT.EQ, '!=': TT.NEQ, '<=': TT.LTE, '>=': TT.GTE,
+                '->': TT.ARROW, '=>': TT.FAT_ARROW, '+=': TT.PLUS_EQ,
+                '-=': TT.MINUS_EQ, '*=': TT.STAR_EQ, '/=': TT.SLASH_EQ,
+                '++': TT.INC, '--': TT.DEC, '<<': TT.AMP, '>>': TT.AMP,
+            }
+            if two in op_map:
+                self.tokens.append(Token(op_map[two], two, self.line, self.col))
+                self.advance(); self.advance()
+                continue
+
+            # Single-char operators
+            single_map = {
+                '.': TT.DOT, ',': TT.COMMA, ':': TT.COLON, ';': TT.SEMICOLON,
+                '(': TT.LPAREN, ')': TT.RPAREN, '{': TT.LBRACE, '}': TT.RBRACE,
+                '[': TT.LBRACKET, ']': TT.RBRACKET,
+                '+': TT.PLUS, '-': TT.MINUS, '*': TT.STAR, '/': TT.SLASH,
+                '%': TT.PERCENT, '^': TT.CARET, '~': TT.TILDE,
+                '&': TT.AMP, '|': TT.PIPE,
+                '<': TT.LT, '>': TT.GT,
+                '=': TT.EQ, '?': TT.QUESTION, '!': TT.BANG,
+            }
+            if ch in single_map:
+                self.tokens.append(Token(single_map[ch], ch, self.line, self.col))
                 self.advance()
-                if self.peek() == '#':
-                    # Block comment
-                    self.advance()
-                    self.skip_block_comment()
-                else:
-                    # Single-line comment
-                    self.skip_comment()
-            
-            # Strings
-            elif ch == '"':
-                token = self.read_string()
-                self.tokens.append(token)
-            
-            # Characters
-            elif ch == "'":
-                token = self.read_char()
-                self.tokens.append(token)
-            
-            # Numbers
-            elif ch.isdigit():
-                token = self.read_number()
-                self.tokens.append(token)
-            
-            # Identifiers and keywords
-            elif ch.isalpha() or ch == '_':
-                token = self.read_identifier()
-                self.tokens.append(token)
-            
-            # Operators and delimiters
-            elif ch == '+':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.PLUS_ASSIGN, '+=', start_line, start_col, 2)
-                elif self.peek() == '+':
-                    self.advance()
-                    self.add_token(TokenType.INCREMENT, '++', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.PLUS, '+', start_line, start_col)
-            
-            elif ch == '-':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.MINUS_ASSIGN, '-=', start_line, start_col, 2)
-                elif self.peek() == '-':
-                    self.advance()
-                    self.add_token(TokenType.DECREMENT, '--', start_line, start_col, 2)
-                elif self.peek() == '>':
-                    self.advance()
-                    self.add_token(TokenType.ARROW, '->', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.MINUS, '-', start_line, start_col)
-            
-            elif ch == '*':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.STAR_ASSIGN, '*=', start_line, start_col, 2)
-                elif self.peek() == '*':
-                    self.advance()
-                    self.add_token(TokenType.POWER, '**', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.STAR, '*', start_line, start_col)
-            
-            elif ch == '/':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.SLASH_ASSIGN, '/=', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.SLASH, '/', start_line, start_col)
-            
-            elif ch == '%':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.PERCENT_ASSIGN, '%=', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.PERCENT, '%', start_line, start_col)
-            
-            elif ch == '=':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.EQ, '==', start_line, start_col, 2)
-                elif self.peek() == '>':
-                    self.advance()
-                    self.add_token(TokenType.THICK_ARROW, '=>', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.ASSIGN, '=', start_line, start_col)
-            
-            elif ch == '!':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.NEQ, '!=', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.EXCLAMATION, '!', start_line, start_col)
-            
-            elif ch == '<':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.LTE, '<=', start_line, start_col, 2)
-                elif self.peek() == '<':
-                    self.advance()
-                    self.add_token(TokenType.SHL, '<<', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.LANGLE, '<', start_line, start_col)
-            
-            elif ch == '>':
-                self.advance()
-                if self.peek() == '=':
-                    self.advance()
-                    self.add_token(TokenType.GTE, '>=', start_line, start_col, 2)
-                elif self.peek() == '>':
-                    self.advance()
-                    self.add_token(TokenType.SHR, '>>', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.GT, '>', start_line, start_col)
-            
-            elif ch == '&':
-                self.advance()
-                if self.peek() == '&':
-                    self.advance()
-                    self.add_token(TokenType.AND_AND, '&&', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.BIT_AND, '&', start_line, start_col)
-            
-            elif ch == '|':
-                self.advance()
-                if self.peek() == '|':
-                    self.advance()
-                    self.add_token(TokenType.OR_OR, '||', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.BIT_OR, '|', start_line, start_col)
-            
-            elif ch == '^':
-                self.advance()
-                self.add_token(TokenType.BIT_XOR, '^', start_line, start_col)
-            
-            elif ch == '~':
-                self.advance()
-                self.add_token(TokenType.BIT_NOT, '~', start_line, start_col)
-            
-            elif ch == '(':
-                self.advance()
-                self.add_token(TokenType.LPAREN, '(', start_line, start_col)
-            
-            elif ch == ')':
-                self.advance()
-                self.add_token(TokenType.RPAREN, ')', start_line, start_col)
-            
-            elif ch == '{':
-                self.advance()
-                self.add_token(TokenType.LBRACE, '{', start_line, start_col)
-            
-            elif ch == '}':
-                self.advance()
-                self.add_token(TokenType.RBRACE, '}', start_line, start_col)
-            
-            elif ch == '[':
-                self.advance()
-                self.add_token(TokenType.LBRACKET, '[', start_line, start_col)
-            
-            elif ch == ']':
-                self.advance()
-                self.add_token(TokenType.RBRACKET, ']', start_line, start_col)
-            
-            elif ch == ':':
-                self.advance()
-                if self.peek() == ':':
-                    self.advance()
-                    self.add_token(TokenType.DOUBLE_COLON, '::', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.COLON, ':', start_line, start_col)
-            
-            elif ch == ';':
-                self.advance()
-                self.add_token(TokenType.SEMICOLON, ';', start_line, start_col)
-            
-            elif ch == ',':
-                self.advance()
-                self.add_token(TokenType.COMMA, ',', start_line, start_col)
-            
-            elif ch == '.':
-                self.advance()
-                self.add_token(TokenType.DOT, '.', start_line, start_col)
-            
-            elif ch == '?':
-                self.advance()
-                self.add_token(TokenType.QUESTION, '?', start_line, start_col)
-            
-            elif ch == '@':
-                self.advance()
-                self.add_token(TokenType.AT, '@', start_line, start_col)
-            
-            elif ch == '$':
-                self.advance()
-                self.add_token(TokenType.DOLLAR, '$', start_line, start_col)
-            
-            elif ch == '#':
-                self.advance()
-                if self.peek() == '#':
-                    self.advance()
-                    self.add_token(TokenType.DOUBLE_HASH, '##', start_line, start_col, 2)
-                else:
-                    self.add_token(TokenType.HASH, '#', start_line, start_col)
-            
-            else:
-                raise self.error(f"Unexpected character: {ch}")
-        
-        self.tokens.append(Token(TokenType.EOF, '', self.line, self.column))
+                continue
+
+            raise LexerError(f"Unexpected character: {ch!r}", self.line, self.col)
+
+        # Final dedents
+        while len(self.indent_stack) > 1:
+            self.indent_stack.pop()
+            self.tokens.append(Token(TT.DEDENT, '', self.line, self.col))
+
+        self.tokens.append(Token(TT.EOF, '', self.line, self.col))
         return self.tokens
 
 
-def tokenize(source: str, filename: str = "<stdin>") -> List[Token]:
-    """Convenience function to tokenize source"""
-    lexer = Lexer(source, filename)
-    return lexer.tokenize()
+def tokenize(source: str, filename: str = '<input>') -> List[Token]:
+    """Convenience function."""
+    return Lexer(source, filename).tokenize()
